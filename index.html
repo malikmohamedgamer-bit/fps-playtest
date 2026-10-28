@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes">
+    <title>FPS</title>
+    <style>
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #06070b; }
+      #game { position: fixed; inset: 0; }
+      #unity-canvas { width: 100%; height: 100%; display: block; background: #06070b; outline: none; }
+      #loading {
+        position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: #06070b; color: #f0f0f5; font-family: "Segoe UI", Roboto, Arial, sans-serif; transition: opacity 0.3s;
+      }
+      #loading h1 { font-size: 42px; letter-spacing: 6px; margin: 0 0 6px 0; }
+      #loading .tag { color: #ff7828; letter-spacing: 8px; font-weight: 700; font-size: 13px; margin-bottom: 28px; }
+      #bar { width: min(60vw, 520px); height: 6px; background: #282c38; border-radius: 3px; overflow: hidden; }
+      #fill { width: 0%; height: 100%; background: #ff7828; transition: width 0.15s; }
+      #status { margin-top: 14px; color: #a0a5af; font-size: 13px; }
+      #warning { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 10; font-family: Arial, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div id="game">
+      <canvas id="unity-canvas" tabindex="-1"></canvas>
+    </div>
+    <div id="loading">
+      <h1>FPS</h1>
+      <div class="tag">TACTICAL / CHAOTIC / FAST</div>
+      <div id="bar"><div id="fill"></div></div>
+      <div id="status">Loading…</div>
+    </div>
+    <div id="warning"></div>
+    <script>
+      var canvas = document.querySelector("#unity-canvas");
+      var loading = document.querySelector("#loading");
+      var fill = document.querySelector("#fill");
+      var statusText = document.querySelector("#status");
+
+      // Unity calls this for non-fatal warnings (shown briefly) and errors (kept on screen).
+      function unityShowBanner(msg, type) {
+        var banner = document.querySelector("#warning");
+        var div = document.createElement("div");
+        div.innerHTML = msg;
+        div.style.padding = "8px 12px";
+        div.style.marginBottom = "6px";
+        div.style.borderRadius = "4px";
+        div.style.background = type == "error" ? "#c0392b" : "#e1b12c";
+        div.style.color = type == "error" ? "#fff" : "#111";
+        banner.appendChild(div);
+        if (type != "error") setTimeout(function () { banner.removeChild(div); }, 6000);
+      }
+
+      var buildUrl = "Build";
+      var config = {
+        arguments: [],
+        dataUrl: buildUrl + "/Practice-Readability-20261029.data.unityweb",
+        frameworkUrl: buildUrl + "/Practice-Readability-20261029.framework.js.unityweb",
+        codeUrl: buildUrl + "/Practice-Readability-20261029.wasm.unityweb",
+        streamingAssetsUrl: "StreamingAssets",
+        fullscreenElementID: "game",
+        companyName: "DefaultCompany",
+        productName: "FPS",
+        productVersion: "0.1.0",
+        showBanner: unityShowBanner,
+        // Settings and key bindings are files in Application.persistentDataPath (the browser's IndexedDB).
+        // This makes every write there persist without manual JS_FileSystem_Sync() calls.
+        autoSyncPersistentDataPath: true,
+      };
+
+      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        // Phones: render at CSS-pixel resolution for performance (the in-game render scale refines this).
+        config.devicePixelRatio = 1;
+      }
+
+      // Right-click is "aim" in this game: never open the browser menu over the canvas.
+      canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+      // Keyboard input needs the canvas focused; clicking it also lets the game capture the mouse.
+      canvas.addEventListener("pointerdown", function () { canvas.focus(); });
+
+      // A refused pointer-lock request (window not active, or the browser rate-limiting a re-lock) rejects with WrongDocumentError /
+      // NotAllowedError. Left unhandled it reached Unity's error handler and froze the page, which in an online match froze the host
+      // (guests then dropped with ProtocolTimeout). Swallow it: the game simply stays unlocked and the next click locks again.
+      (function () {
+        var original = Element.prototype.requestPointerLock;
+        if (!original) return;
+        Element.prototype.requestPointerLock = function (options) {
+          try {
+            var result = original.call(this, options);
+            if (result && typeof result.catch === "function")
+              return result.catch(function (e) { console.warn("[FPS] pointer lock refused: " + (e && e.name)); });
+            return result;
+          } catch (e) {
+            console.warn("[FPS] pointer lock refused: " + (e && e.name));
+          }
+        };
+      })();
+
+      var script = document.createElement("script");
+      script.src = buildUrl + "/Practice-Readability-20261029.loader.js";
+      script.onload = function () {
+        var started = performance.now();
+        createUnityInstance(canvas, config, function (progress) {
+          fill.style.width = Math.round(progress * 100) + "%";
+          statusText.textContent = progress < 0.9 ? "Downloading… " + Math.round(progress * 100) + "%" : "Starting…";
+        }).then(function (unityInstance) {
+          window.unityInstance = unityInstance;
+          // Exposed for Gate W load-time measurements (read from the browser console).
+          window.fpsLoadSeconds = (performance.now() - started) / 1000;
+          console.log("[FPS] Loaded in " + window.fpsLoadSeconds.toFixed(2) + " s");
+          loading.style.opacity = "0";
+          setTimeout(function () { loading.style.display = "none"; }, 300);
+          canvas.focus();
+        }).catch(function (message) {
+          statusText.textContent = "Failed to start: " + message;
+          statusText.style.color = "#ff6b5b";
+        });
+      };
+      document.body.appendChild(script);
+    </script>
+  </body>
+</html>
